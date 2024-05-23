@@ -33,7 +33,6 @@ class Task:
         new_lst.date = self.date
         new_lst.tag = self.tag
         new_lst.repeat = self.repeat
-        # print("new list:", new_lst)
         return new_lst
 
 
@@ -50,7 +49,7 @@ class TaskList(Task):
         random_tasks = Task(random.choice(task_names), date=datetime.date.today(), tag='random')
         self.full.append(random_tasks)
 
-    def add_task(self, name, tag=None, importance=None, date=None, repeat=None):
+    def add_task(self, name, tag=None, importance=None, date=None, repeat=None, done=False):
         for t in self:
             if t.name == name:
                 raise ValueError  # 防止添加重複名稱的任務
@@ -69,6 +68,7 @@ class TaskList(Task):
 
     def finish_task(self, name):
         self[name].done = True  # 標記任務為已完成
+        tracker.track_task(self[name])  # 通知 Tracker 任務已完成
 
     def rewrite(self, name, mode='name', content=None):
         if mode == "name":
@@ -143,7 +143,7 @@ class TaskList(Task):
                     ans.append(task.name)
             return ans
 
-    def sort_with(self, mode='name', submode='datetime'):  # TODO: 根據不同模式進行排序
+    def sort_with(self, mode='name', sub_mode='datetime'):  # TODO: 根據不同模式進行排序
         lst = []
         if mode == 'name':  # 找出所有任務後依照名稱直接排序
             lst = sorted(self.get_all(mode=1))
@@ -196,7 +196,46 @@ class Viewer:
 
 
 class Tracker:
-    pass
+    def __init__(self):
+        self.weekly_tasks = []
+        self.monthly_tasks = []
+        self.weekly_tags = {}
+        self.monthly_tags = {}
+
+    def track_task(self, task):
+        today = datetime.date.today()  # 獲取今天的日期
+        if task.done:
+            if task.date:
+                # 判斷任務是否在當週完成（7 天之內）
+                if task.date.isocalendar()[1] == today.isocalendar()[1]:  # 當週
+                    self.weekly_tasks.append(task)
+                    if task.tag not in self.weekly_tags:
+                        self.weekly_tags[task.tag] = [task]
+                    else:
+                        self.weekly_tags[task.tag].append(task)
+                # 判斷任務是否在當月完成
+                if today.year == task.date.year and today.month == task.date.month:
+                    self.monthly_tasks.append(task)
+                    if task.tag not in self.monthly_tags:
+                        self.monthly_tags[task.tag] = [task]
+                    else:
+                        self.monthly_tags[task.tag].append(task)
+
+    def generate_weekly_report(self):
+        weekly_completed_task = len(self.weekly_tasks)
+        report = f"Weekly completed tasks: {weekly_completed_task}\n"
+        report += "Tasks by tag:\n"
+        for tag, tasks in self.weekly_tags.items():
+            report += f"  {tag}: {len(tasks)} tasks\n"
+        return report
+
+    def generate_monthly_report(self):
+        monthly_completed_task = len(self.monthly_tasks)
+        report = f"Monthly completed tasks: {monthly_completed_task}\n"
+        report += "Tasks by tag:\n"
+        for tag, tasks in self.monthly_tags.items():
+            report += f"  {tag}: {len(tasks)} tasks\n"
+        return report
 
 
 def task_to_text(t, layer=0):
@@ -216,9 +255,23 @@ def save(root):  # 這應該只接受根TaskList
     f.close()
 
 
-def read(file):  # TODO: 從保存的文件讀取
-    pass
+def read(file):
+    file = open(file, "r", encoding="utf-8")
+    root = TaskList()
 
+    for line in file:
+        line = line.strip(' _ ')
+        name = line[0]
+        importance = line[1]
+        date = line[2]
+        tag = line[3]
+        repeat = line[4]
+        done = True if line[5] == 'True' else False
+        root.add_task(name, tag, importance, date, repeat, done)
+
+
+# 創建一個 Tracker 實例
+tracker = Tracker()
 
 # 初始化根任務列表
 root = TaskList()
@@ -233,6 +286,10 @@ root["One"].make_task_list("1:1")
 root["One"].add_task("1:2")
 root["One"].add_task("1:3")
 root["One"]["1:1"].add_task("1:1:1")
+root.add_task('task1', date=datetime.date.today(), tag="work")
+root.add_task('task2', date=datetime.date.today(), tag="personal")
+root.add_task('task3', date=datetime.date.today(), tag="personal")
+root.finish_task('task1')
 
 # 打印任務列表和搜尋結果
 print(root)
@@ -243,3 +300,7 @@ print(root.search("One", 'name'))
 save(root)
 print(task_to_text(root["One"]).replace('\n\n', '\n'))
 print(root.full)
+print(root['task1'].done)
+
+# 生成並打印報告
+print(tracker.generate_weekly_report())
