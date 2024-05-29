@@ -1,5 +1,6 @@
 import datetime
 import random
+
 # TODO: 實作日期功能 # 使用不同模式進行搜尋已搞定
 importance_level = {'High': 0, 'Medium': 1, 'Low': 2}  # 需創建UI介面讓使用者選擇
 
@@ -35,6 +36,16 @@ class Task:
         new_lst.repeat = self.repeat
         return new_lst
 
+    def generate_path(self):
+        ans = []
+        current = self
+        ans.append(current.name)
+        while current.mother is not None:
+            ans.append(self.mother.name)
+            current = current.mother
+        ans.reverse()
+        return ans
+
 
 class TaskList(Task):
 
@@ -53,7 +64,9 @@ class TaskList(Task):
         for t in self:
             if t.name == name:
                 raise ValueError  # 防止添加重複名稱的任務
-        self.full.append(Task(name, self, importance, date, tag, repeat))
+        this_task = Task(name, self, importance, date, tag, repeat)
+        self.full.append(this_task)
+        return this_task
 
     def remove_all_done(self):
         for task in self:
@@ -112,6 +125,7 @@ class TaskList(Task):
 
     def make_task_list(self, name):
         self[name] = self[name].turn_to_lst()
+        return self[name]
         # print("making_list", self[name])
 
     def export(self):
@@ -240,10 +254,10 @@ class Tracker:
 
 def task_to_text(t, layer=0):
     if type(t) is Task:
-        return f"{'    '*layer} - {t.name} - {t.tag} - {t.importance} - {t.date} - {t.repeat} - {t.done}"
+        return f"{' ' * layer} - {t.name} - {t.tag} - {t.importance} - {t.date} - {t.repeat} - {t.done}"
     if type(t) is TaskList:
         ans = ""
-        ans += f"{'    '*layer} - {t.name} - {t.tag} - {t.importance} - {t.date} - {t.repeat} - {t.done}" + '\n'
+        ans += f"{' ' * layer} - {t.name} - {t.tag} - {t.importance} - {t.date} - {t.repeat} - {t.done}" + '\n'
         for task in t:
             ans += task_to_text(task, layer + 1) + '\n'
         return ans
@@ -258,16 +272,34 @@ def save(root):  # 這應該只接受根TaskList
 def read(file):
     file = open(file, "r", encoding="utf-8")
     root = TaskList()
+    last_layer = 0
+    layer_dict = {0: root}
+    last_task = None
 
-    for line in file:
-        line = line.strip(' _ ')
+    for c, line in enumerate(file):
+        if c == 0:
+            continue
+        # print(line)
+        layer = line.count(" ")
+        line = line.split(' - ')
+        line.pop(0)
         name = line[0]
         importance = line[1]
         date = line[2]
         tag = line[3]
         repeat = line[4]
         done = True if line[5] == 'True' else False
-        root.add_task(name, tag, importance, date, repeat, done)
+        # root.add_task(name, tag, importance, date, repeat, done)
+        if layer == 0:
+            layer_dict[layer] = root.add_task(name, tag, importance, date, repeat, done)
+        else:
+            if type(layer_dict[layer-1]) is Task:
+                layer_dict[layer-1] = layer_dict[layer-1].mother.make_task_list(layer_dict[layer-1].name)
+                layer_dict[layer] = layer_dict[layer-1].add_task(name, tag, importance, date, repeat, done)
+
+            elif type(layer_dict[layer-1]) is TaskList:
+                layer_dict[layer] = layer_dict[layer-1].add_task(name, tag, importance, date, repeat, done)
+    return root
 
 
 # 創建一個 Tracker 實例
