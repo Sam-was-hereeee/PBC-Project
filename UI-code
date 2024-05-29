@@ -1,6 +1,6 @@
 import sys
-from PyQt5.QtWidgets import QApplication, QMainWindow, QCalendarWidget, QListWidget, QLineEdit, QPushButton, QComboBox, QVBoxLayout, QHBoxLayout, QWidget, QMenu, QAction, QStackedWidget, QLabel
-from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtWidgets import QApplication, QMainWindow, QCalendarWidget, QListWidget, QLineEdit, QPushButton, QComboBox, QVBoxLayout, QHBoxLayout, QWidget, QMenu, QAction, QStackedWidget, QLabel, QMessageBox, QInputDialog
+from PyQt5.QtCore import Qt, QDate, QTimer
 from collections import defaultdict
 import datetime
 import random
@@ -10,13 +10,14 @@ import os
 importance_level = {'High': 0, 'Medium': 1, 'Low': 2}
 
 class Task:
-    def __init__(self, name, mother=None, importance=None, date=None, tag=None, repeat=None):
+    def __init__(self, name, mother=None, importance=None, date=None, tag=None, repeat=None, reminder=None):
         self.name = name
         self.mother = mother
         self.importance = importance
         self.date = date
         self.tag = tag
         self.repeat = repeat
+        self.reminder = reminder
         self.done = False
 
     def __repr__(self):
@@ -33,6 +34,7 @@ class Task:
         new_lst.date = self.date
         new_lst.tag = self.tag
         new_lst.repeat = self.repeat
+        new_lst.reminder = self.reminder
         return new_lst
 
 class TaskList(Task):
@@ -47,11 +49,11 @@ class TaskList(Task):
         random_tasks = Task(random.choice(task_names), date=datetime.date.today(), tag='random')
         self.full.append(random_tasks)
 
-    def add_task(self, name, tag=None, importance=None, date=None, repeat=None, done=False):
+    def add_task(self, name, tag=None, importance=None, date=None, repeat=None, reminder=None, done=False):
         for t in self:
             if t.name == name:
                 raise ValueError
-        self.full.append(Task(name, self, importance, date, tag, repeat))
+        self.full.append(Task(name, self, importance, date, tag, repeat, reminder))
 
     def remove_all_done(self):
         for task in self:
@@ -239,7 +241,7 @@ class Tracker:
         explode = (0.1, 0)
 
         plt.figure(figsize=(7, 7))
-        plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1f%%', shadow=True, startangle=140)
+        plt.pie(sizes, explode=explode, labels=labels, colors=colors, autopct='%1.1%%', shadow=True, startangle=140)
         plt.axis('equal')
         plt.title('Task Completion Status')
         plt.show()
@@ -279,9 +281,9 @@ root["One"].make_task_list("1:1")
 root["One"].add_task("1:2")
 root["One"].add_task("1:3")
 root["One"]["1:1"].add_task("1:1:1")
-root.add_task('task1', date=datetime.date.today(), tag="work")
-root.add_task('task2', date=datetime.date.today(), tag="personal")
-root.add_task('task3', date=datetime.date.today(), tag="personal")
+root.add_task('task1', date=datetime.date.today(), tag="work", reminder="One day before")
+root.add_task('task2', date=datetime.date.today(), tag="personal", reminder="Three days before")
+root.add_task('task3', date=datetime.date.today(), tag="personal", reminder="One week before")
 root.finish_task('task1')
 
 # 打印任務列表和搜尋結果
@@ -322,9 +324,18 @@ class TaskManager(QMainWindow):
         self.task_input = QLineEdit()
         self.task_input.setPlaceholderText("輸入新任務")
 
-        # 創建難易度選擇框
+        # 創建重要性選擇框
         self.difficulty_combo = QComboBox()
         self.difficulty_combo.addItems(["None", "Low", "Medium", "High"])
+
+        # 創建提醒時間選擇框
+        self.reminder_combo = QComboBox()
+        self.reminder_combo.addItems(["None", "One day before", "Three days before", "One week before"])
+
+        # 創建標籤選擇框
+        self.tag_combo = QComboBox()
+        self.tag_combo.setEditable(True)
+        self.tag_combo.addItems(["work", "personal", "study"])  # 初始標籤
 
         # 創建排序選單
         self.sort_order_combo = QComboBox()
@@ -332,17 +343,17 @@ class TaskManager(QMainWindow):
         self.sort_order_combo.currentIndexChanged.connect(self.sort_tasks_by_difficulty)
 
         # 創建按鈕
-        self.add_button = QPushButton("Add Task")
+        self.add_button = QPushButton("新增任務")
         self.add_button.clicked.connect(self.add_task)
-        self.remove_button = QPushButton("Remove Task")
+        self.remove_button = QPushButton("刪除任務")
         self.remove_button.clicked.connect(self.remove_task)
-        self.finish_button = QPushButton("Finish Task")
+        self.finish_button = QPushButton("完成任務")
         self.finish_button.clicked.connect(self.finish_task)
 
         # 創建排序菜單
-        self.sort_menu = QMenu("Sort Tasks")
-        self.sort_by_name_action = QAction("Sort by Name")
-        self.sort_by_difficulty_action = QAction("Sort by Difficulty")
+        self.sort_menu = QMenu("排序任務")
+        self.sort_by_name_action = QAction("按名稱排序")
+        self.sort_by_difficulty_action = QAction("按難度排序")
         self.sort_menu.addAction(self.sort_by_name_action)
         self.sort_menu.addAction(self.sort_by_difficulty_action)
         self.sort_by_name_action.triggered.connect(lambda: self.sort_tasks("name"))
@@ -351,6 +362,8 @@ class TaskManager(QMainWindow):
         side_layout = QVBoxLayout()
         side_layout.addWidget(self.task_input)
         side_layout.addWidget(self.difficulty_combo)
+        side_layout.addWidget(self.reminder_combo)
+        side_layout.addWidget(self.tag_combo)
         side_layout.addWidget(self.sort_order_combo)
         side_layout.addWidget(self.add_button)
         side_layout.addWidget(self.remove_button)
@@ -368,10 +381,10 @@ class TaskManager(QMainWindow):
         self.stacked_layout.addWidget(blank_widget)
 
         # 創建工具欄
-        toolbar = self.addToolBar("Tools")
-        sort_action = toolbar.addAction("Sort")
+        toolbar = self.addToolBar("工具")
+        sort_action = toolbar.addAction("排序")
         sort_action.setMenu(self.sort_menu)
-        remove_all_done_action = toolbar.addAction("Remove All Done")
+        remove_all_done_action = toolbar.addAction("移除所有完成的任務")
         remove_all_done_action.triggered.connect(self.remove_all_done)
 
         # 創建底部按鈕
@@ -402,11 +415,15 @@ class TaskManager(QMainWindow):
         self.create_game_layout()
         self.stacked_layout.addWidget(self.game_widget)
 
+        # 設定提醒
+        self.reminder_timers = []
+        self.setup_reminders()
+
     def create_game_layout(self):
         self.game_layout = QVBoxLayout()
-        self.game_label = QLabel("Guess the number between 1 and 100")
+        self.game_label = QLabel("猜一個1到100之間的數字")
         self.game_input = QLineEdit()
-        self.game_button = QPushButton("Guess")
+        self.game_button = QPushButton("猜測")
         self.game_button.clicked.connect(self.check_guess)
         self.game_result = QLabel("")
        
@@ -421,27 +438,32 @@ class TaskManager(QMainWindow):
     def check_guess(self):
         guess = int(self.game_input.text())
         if guess < self.target_number:
-            self.game_result.setText("Too low!")
+            self.game_result.setText("太低了!")
         elif guess > self.target_number:
-            self.game_result.setText("Too high!")
+            self.game_result.setText("太高了!")
         else:
-            self.game_result.setText("Congratulations! You guessed it!")
+            self.game_result.setText("恭喜! 你猜對了!")
 
     def show_date(self, date):
         self.setWindowTitle(f"Task Manager - {date.toString('yyyy-MM-dd')}")
         self.task_list.clear()
         for task in self.tasks[date.toPyDate()]:
             status = "[完成] " if task['finished'] else ""
-            item = f"{status}{task['name']} ({task['difficulty']})"
+            item = f"{status}{task['name']} ({task['difficulty']}) - {task['tag']}"
             self.task_list.addItem(item)
 
     def add_task(self):
         task_name = self.task_input.text()
         difficulty = self.difficulty_combo.currentText()
+        reminder = self.reminder_combo.currentText()
+        tag = self.tag_combo.currentText()
+        if tag not in [self.tag_combo.itemText(i) for i in range(self.tag_combo.count())]:
+            self.tag_combo.addItem(tag)
         if task_name:
             date = self.calendar.selectedDate().toPyDate()
-            task = {'name': task_name, 'difficulty': difficulty, 'finished': False}
+            task = {'name': task_name, 'difficulty': difficulty, 'finished': False, 'reminder': reminder, 'tag': tag}
             self.tasks[date].append(task)
+            self.setup_reminders()
             self.show_date(self.calendar.selectedDate())
             self.task_input.clear()
 
@@ -456,6 +478,7 @@ class TaskManager(QMainWindow):
                         self.tasks[date].remove(task)
                         break
             self.show_date(self.calendar.selectedDate())
+            self.setup_reminders()
 
     def finish_task(self):
         selected_items = self.task_list.selectedItems()
@@ -468,6 +491,7 @@ class TaskManager(QMainWindow):
                         task['finished'] = True
                         break
             self.show_date(self.calendar.selectedDate())
+            self.setup_reminders()
 
     def sort_tasks(self, mode):
         if mode == "name":
@@ -493,9 +517,45 @@ class TaskManager(QMainWindow):
         date = self.calendar.selectedDate().toPyDate()
         self.tasks[date] = [task for task in self.tasks[date] if not task['finished']]
         self.show_date(self.calendar.selectedDate())
+        self.setup_reminders()
 
     def track_tasks(self):
         tracker.generate_completion_chart()
+
+    def setup_reminders(self):
+        for timer in self.reminder_timers:
+            timer.stop()
+
+        self.reminder_timers = []
+
+        for date, tasks in self.tasks.items():
+            for task in tasks:
+                if task['reminder'] != "None" and not task['finished']:
+                    reminder_time = self.calculate_reminder_time(date, task['reminder'])
+                    if reminder_time:
+                        timer = QTimer(self)
+                        timer.setSingleShot(True)
+                        timer.timeout.connect(lambda task=task: self.show_reminder(task))
+                        timer.start(reminder_time)
+                        self.reminder_timers.append(timer)
+
+    def calculate_reminder_time(self, task_date, reminder):
+        now = datetime.datetime.now()
+        task_datetime = datetime.datetime.combine(task_date, datetime.time(0, 0))
+        if reminder == "One day before":
+            reminder_datetime = task_datetime - datetime.timedelta(days=1)
+        elif reminder == "Three days before":
+            reminder_datetime = task_datetime - datetime.timedelta(days=3)
+        elif reminder == "One week before":
+            reminder_datetime = task_datetime - datetime.timedelta(weeks=1)
+        else:
+            return None
+
+        reminder_time = (reminder_datetime - now).total_seconds() * 1000
+        return reminder_time if reminder_time > 0 else None
+
+    def show_reminder(self, task):
+        QMessageBox.information(self, "Task Reminder", f"提醒: {task['name']} 快到期了！")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
